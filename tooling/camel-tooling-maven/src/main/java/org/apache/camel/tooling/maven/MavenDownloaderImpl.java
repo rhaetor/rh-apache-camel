@@ -31,6 +31,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
@@ -77,6 +78,7 @@ import org.apache.maven.settings.validation.SettingsValidator;
 import org.codehaus.plexus.util.xml.Xpp3Dom;
 import org.eclipse.aether.AbstractRepositoryListener;
 import org.eclipse.aether.ConfigurationProperties;
+import org.eclipse.aether.DefaultRepositoryCache;
 import org.eclipse.aether.DefaultRepositorySystemSession;
 import org.eclipse.aether.RepositoryEvent;
 import org.eclipse.aether.RepositorySystem;
@@ -368,6 +370,15 @@ public class MavenDownloaderImpl extends ServiceSupport implements MavenDownload
 
     @Override
     public List<MavenArtifact> resolveArtifacts(
+            List<String> dependencyGAVs,
+            Set<String> extraRepositories, boolean transitively, boolean useApacheSnapshots)
+            throws MavenResolutionException {
+        return resolveArtifacts(null, dependencyGAVs, extraRepositories, transitively, useApacheSnapshots);
+    }
+
+    @Override
+    public List<MavenArtifact> resolveArtifacts(
+            String rootGav,
             List<String> dependencyGAVs, Set<String> extraRepositories,
             boolean transitively, boolean useApacheSnapshots)
             throws MavenResolutionException {
@@ -402,6 +413,14 @@ public class MavenDownloaderImpl extends ServiceSupport implements MavenDownload
             requests.add(ar);
 
             Dependency dependency = new Dependency(ar.getArtifact(), "compile", false);
+            if (Objects.nonNull(rootGav) && !rootGav.isEmpty()) {
+                MavenGav rootMavenGav = MavenGav.parseGav(depId);
+                Artifact rootArtifact = new DefaultArtifact(
+                        rootMavenGav.getGroupId(), rootMavenGav.getArtifactId(),
+                        rootMavenGav.getClassifier(), rootMavenGav.getPackaging(),
+                        rootMavenGav.getVersion(), artifactTypeRegistry.get(rootMavenGav.getPackaging()));
+                collectRequest.setRoot(new Dependency(rootArtifact, "compile", false));
+            }
             collectRequest.addDependency(dependency);
             //collectRequest.addManagedDependency(...);
         }
@@ -1157,11 +1176,12 @@ public class MavenDownloaderImpl extends ServiceSupport implements MavenDownload
         //            session.setRepositoryListener(null);
         //            session.setTransferListener(null);
         //            session.setResolutionErrorPolicy(null);
-        //            session.setCache(null);
         //            session.setData(null);
         //            session.setReadOnly();
         // could be useful to search through kamelet/jbang config
         session.setWorkspaceReader(null);
+
+        session.setCache(new DefaultRepositoryCache());
 
         return session;
     }

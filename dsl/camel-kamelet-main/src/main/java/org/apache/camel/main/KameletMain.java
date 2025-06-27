@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeMap;
+import java.util.stream.Stream;
 
 import org.w3c.dom.Document;
 
@@ -57,6 +58,7 @@ import org.apache.camel.main.download.DependencyDownloaderRoutesLoader;
 import org.apache.camel.main.download.DependencyDownloaderStrategy;
 import org.apache.camel.main.download.DependencyDownloaderTransformerResolver;
 import org.apache.camel.main.download.DependencyDownloaderUriFactoryResolver;
+import org.apache.camel.main.download.DownloadEndpointStrategy;
 import org.apache.camel.main.download.DownloadListener;
 import org.apache.camel.main.download.DownloadModelineParser;
 import org.apache.camel.main.download.ExportPropertiesParser;
@@ -477,10 +479,8 @@ public class KameletMain extends MainCommandLineSupport {
             mainConfigurationProperties.setAutoConfigurationFailFast(false);
         }
 
-        String info = startupInfo();
-        if (info != null) {
-            LOG.info(info);
-        }
+        var infos = startupInfo();
+        infos.forEach(LOG::info);
 
         answer.getCamelContextExtension().setRegistry(registry);
         if (silent || "*".equals(stubPattern)) {
@@ -624,6 +624,7 @@ public class KameletMain extends MainCommandLineSupport {
                     ff, answer, Optional.ofNullable(camelVersion).map(Object::toString).orElse(null), export);
             answer.getCamelContextExtension().addContextPlugin(PeriodTaskResolver.class, ptr);
 
+            answer.getCamelContextExtension().registerEndpointCallback(new DownloadEndpointStrategy(answer, silent));
             answer.getCamelContextExtension().addContextPlugin(ComponentResolver.class,
                     new DependencyDownloaderComponentResolver(answer, stubPattern, silent, transform));
             answer.getCamelContextExtension().addContextPlugin(DataFormatResolver.class,
@@ -651,11 +652,13 @@ public class KameletMain extends MainCommandLineSupport {
 
             // reloader
             if (sourceDir != null) {
+                configure().httpServer().withStaticSourceDir(sourceDir);
+                configure().httpServer().withUploadSourceDir(sourceDir);
+
                 if (console || health) {
                     // allow to upload/download source (source-dir is intended to be dynamic) via http when HTTP console enabled
                     configure().httpServer().withEnabled(true);
                     configure().httpServer().withUploadEnabled(true);
-                    configure().httpServer().withUploadSourceDir(sourceDir);
                     configure().httpServer().withDownloadEnabled(true);
                 }
                 RouteOnDemandReloadStrategy reloader = new RouteOnDemandReloadStrategy(sourceDir, true);
@@ -857,13 +860,26 @@ public class KameletMain extends MainCommandLineSupport {
         addInitialProperty("camel.component.kamelet.location", location);
     }
 
-    protected String startupInfo() {
+    protected Stream<String> startupInfo() {
+        List<String> infos = new ArrayList<>();
+
         StringBuilder sb = new StringBuilder();
-        sb.append("Using Java ").append(System.getProperty("java.version"));
+        sb.append("Running ").append(System.getProperty("os.name")).append(" ").append(System.getProperty("os.version"));
+        sb.append(" (").append(System.getProperty("os.arch")).append(")");
+        infos.add(sb.toString());
+
+        sb = new StringBuilder();
+        sb.append("Using Java ").append(System.getProperty("java.version")).append(" (")
+                .append(System.getProperty("java.vm.name")).append(")");
         sb.append(" with PID ").append(getPid());
-        sb.append(". Started by ").append(System.getProperty("user.name"));
+        infos.add(sb.toString());
+
+        sb = new StringBuilder();
+        sb.append("Started by ").append(System.getProperty("user.name"));
         sb.append(" in ").append(System.getProperty("user.dir"));
-        return sb.toString();
+        infos.add(sb.toString());
+
+        return infos.stream();
     }
 
     @Override

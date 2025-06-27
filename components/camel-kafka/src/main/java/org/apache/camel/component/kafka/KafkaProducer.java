@@ -445,9 +445,7 @@ public class KafkaProducer extends DefaultAsyncProducer {
 
         if (configuration.isRecordMetadata()) {
             List<RecordMetadata> metadataList = Collections.singletonList(metadata);
-
             ProducerUtil.setRecordMetadata(key, metadataList);
-
             return metadataList;
         }
 
@@ -512,7 +510,8 @@ public class KafkaProducer extends DefaultAsyncProducer {
             KafkaProducerMetadataCallBack metadataCallBack = new KafkaProducerMetadataCallBack(
                     key, configuration.isRecordMetadata());
 
-            DelegatingCallback delegatingCallback = new DelegatingCallback(cb, metadataCallBack);
+            // make sure to cb is last in the order here
+            DelegatingCallback delegatingCallback = new DelegatingCallback(metadataCallBack, cb);
 
             kafkaProducer.send(record, delegatingCallback);
         } else {

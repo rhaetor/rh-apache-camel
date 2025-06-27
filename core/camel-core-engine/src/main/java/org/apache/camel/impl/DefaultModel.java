@@ -104,6 +104,11 @@ public class DefaultModel implements Model {
     }
 
     @Override
+    public void removeModelLifecycleStrategy(ModelLifecycleStrategy modelLifecycleStrategy) {
+        this.modelLifecycleStrategies.remove(modelLifecycleStrategy);
+    }
+
+    @Override
     public List<ModelLifecycleStrategy> getModelLifecycleStrategies() {
         return modelLifecycleStrategies;
     }
@@ -243,6 +248,8 @@ public class DefaultModel implements Model {
                                 }
                                 r.getOutputs().removeAll(toBeRemovedOut);
                                 r.getOutputs().addAll(toBeInlined.getOutputs());
+                                // inlined outputs should have re-assigned parent to this route
+                                r.getOutputs().forEach(o -> o.setParent(r));
                                 // and copy over various configurations
                                 if (toBeInlined.getRouteId() != null) {
                                     r.setId(toBeInlined.getRouteId());
@@ -485,12 +492,12 @@ public class DefaultModel implements Model {
             StringJoiner missingParameters = new StringJoiner(", ");
 
             for (RouteTemplateParameterDefinition temp : target.getTemplateParameters()) {
-                if (temp.getDefaultValue() != null) {
-                    addProperty(prop, temp.getName(), temp.getDefaultValue());
-                    addProperty(propDefaultValues, temp.getName(), temp.getDefaultValue());
-                } else if (routeTemplateContext.hasEnvironmentVariable(temp.getName())) {
+                if (routeTemplateContext.hasEnvironmentVariable(temp.getName())) {
                     // property is configured via environment variables
                     addProperty(prop, temp.getName(), routeTemplateContext.getEnvironmentVariable(temp.getName()));
+                } else if (temp.getDefaultValue() != null) {
+                    addProperty(prop, temp.getName(), temp.getDefaultValue());
+                    addProperty(propDefaultValues, temp.getName(), temp.getDefaultValue());
                 } else if (temp.isRequired() && !routeTemplateContext.hasParameter(temp.getName())) {
                     // this is a required parameter which is missing
                     missingParameters.add(temp.getName());

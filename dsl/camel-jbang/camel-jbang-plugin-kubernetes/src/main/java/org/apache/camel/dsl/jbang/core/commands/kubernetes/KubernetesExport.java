@@ -175,6 +175,7 @@ public class KubernetesExport extends Export {
         quiet = configurer.quiet;
         logging = configurer.logging;
         loggingLevel = configurer.loggingLevel;
+        verbose = configurer.verbose;
     }
 
     public Integer export() throws Exception {
@@ -265,7 +266,6 @@ public class KubernetesExport extends Export {
             // Remove OpenAPI spec option to avoid duplicate handling by parent export command
             openapi = null;
         }
-        TraitHelper.configureProperties(traitsSpec, applicationProperties);
         TraitHelper.configureContainerImage(traitsSpec, image,
                 resolvedImageRegistry, resolvedImageGroup, projectName, getVersion());
         TraitHelper.configureEnvVars(traitsSpec, envVars);
@@ -292,6 +292,9 @@ public class KubernetesExport extends Export {
                 printer().printf("OpenShift forcing --image-builder=docker%n");
                 imageBuilder = "docker";
             }
+            // the deployment trait already generates the src/main/jkube/deployment.yml
+            // but we also have to set in the jkube to generate Deployment instead of DeploymentConfig
+            buildProperties.add("jkube.build.switchToDeployment=true");
             buildProperties.add("jkube.maven.plugin=%s".formatted("openshift-maven-plugin"));
         } else {
             buildProperties.add("jkube.maven.plugin=%s".formatted("kubernetes-maven-plugin"));
@@ -329,7 +332,7 @@ public class KubernetesExport extends Export {
         buildProperties.add("jkube.version=%s".formatted(jkubeVersion));
 
         // Run export
-        int exit = super.export();
+        int exit = super.doExport();
         if (exit != 0) {
             printer().println("Project export failed");
             return exit;
@@ -542,6 +545,7 @@ public class KubernetesExport extends Export {
             boolean download,
             boolean quiet,
             boolean logging,
-            String loggingLevel) {
+            String loggingLevel,
+            boolean verbose) {
     }
 }

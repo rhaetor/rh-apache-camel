@@ -235,10 +235,6 @@ public class MailConsumer extends ScheduledBatchPollingConsumer {
 
             // must use the original message in case we need to work around a charset issue when extracting mail content
             var msg = exchange.getIn();
-            if (msg instanceof AttachmentMessage am) {
-                // unwrap from attachment message
-                msg = am.getDelegateMessage();
-            }
             final Message mail = ((MailMessage) msg).getOriginalMessage();
 
             // add on completion to handle after work when the exchange is done
@@ -455,8 +451,10 @@ public class MailConsumer extends ScheduledBatchPollingConsumer {
      */
     protected void processExchange(Exchange exchange) throws Exception {
         if (LOG.isDebugEnabled()) {
-            MailMessage msg = (MailMessage) exchange.getIn();
-            LOG.debug("Processing message: {}", MailUtils.dumpMessage(msg.getMessage()));
+            var msg = exchange.getIn();
+            if (msg instanceof MailMessage mm) {
+                LOG.debug("Processing message: {}", MailUtils.dumpMessage(mm.getMessage()));
+            }
         }
         getProcessor().process(exchange);
     }

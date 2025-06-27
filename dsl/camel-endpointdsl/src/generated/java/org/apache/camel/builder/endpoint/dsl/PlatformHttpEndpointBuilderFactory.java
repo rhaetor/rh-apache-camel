@@ -394,6 +394,36 @@ public interface PlatformHttpEndpointBuilderFactory {
             return this;
         }
         /**
+         * The period in milliseconds after which the request should be timed
+         * out.
+         * 
+         * The option is a: <code>long</code> type.
+         * 
+         * Group: consumer
+         * 
+         * @param requestTimeout the value to set
+         * @return the dsl builder
+         */
+        default AdvancedPlatformHttpEndpointBuilder requestTimeout(long requestTimeout) {
+            doSetProperty("requestTimeout", requestTimeout);
+            return this;
+        }
+        /**
+         * The period in milliseconds after which the request should be timed
+         * out.
+         * 
+         * The option will be converted to a <code>long</code> type.
+         * 
+         * Group: consumer
+         * 
+         * @param requestTimeout the value to set
+         * @return the dsl builder
+         */
+        default AdvancedPlatformHttpEndpointBuilder requestTimeout(String requestTimeout) {
+            doSetProperty("requestTimeout", requestTimeout);
+            return this;
+        }
+        /**
          * Whether to include HTTP request headers (Accept, User-Agent, etc.)
          * into HTTP response produced by this endpoint.
          * 
@@ -423,6 +453,38 @@ public interface PlatformHttpEndpointBuilderFactory {
          */
         default AdvancedPlatformHttpEndpointBuilder returnHttpRequestHeaders(String returnHttpRequestHeaders) {
             doSetProperty("returnHttpRequestHeaders", returnHttpRequestHeaders);
+            return this;
+        }
+        /**
+         * Whether to use BodyHandler for the request. If set to false then the
+         * request will no be read and parsed.
+         * 
+         * The option is a: <code>boolean</code> type.
+         * 
+         * Default: true
+         * Group: consumer
+         * 
+         * @param useBodyHandler the value to set
+         * @return the dsl builder
+         */
+        default AdvancedPlatformHttpEndpointBuilder useBodyHandler(boolean useBodyHandler) {
+            doSetProperty("useBodyHandler", useBodyHandler);
+            return this;
+        }
+        /**
+         * Whether to use BodyHandler for the request. If set to false then the
+         * request will no be read and parsed.
+         * 
+         * The option will be converted to a <code>boolean</code> type.
+         * 
+         * Default: true
+         * Group: consumer
+         * 
+         * @param useBodyHandler the value to set
+         * @return the dsl builder
+         */
+        default AdvancedPlatformHttpEndpointBuilder useBodyHandler(String useBodyHandler) {
+            doSetProperty("useBodyHandler", useBodyHandler);
             return this;
         }
         /**

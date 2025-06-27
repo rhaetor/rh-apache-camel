@@ -36,6 +36,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.StringJoiner;
 import java.util.TreeSet;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import io.vertx.core.Handler;
@@ -123,6 +124,7 @@ public class MainHttpServer extends ServiceSupport implements CamelContextAware,
     private VertxPlatformHttpServerConfiguration configuration = new VertxPlatformHttpServerConfiguration();
     private boolean infoEnabled;
     private boolean staticEnabled;
+    private String staticSourceDir;
     private String staticContextPath;
     private boolean devConsoleEnabled;
     private boolean healthCheckEnabled;
@@ -186,6 +188,15 @@ public class MainHttpServer extends ServiceSupport implements CamelContextAware,
 
     public void setStaticEnabled(boolean staticEnabled) {
         this.staticEnabled = staticEnabled;
+    }
+
+    public String getStaticSourceDir() {
+        return staticSourceDir;
+    }
+
+    @ManagedAttribute(description = "The source dir for serving static content")
+    public void setStaticSourceDir(String staticSourceDir) {
+        this.staticSourceDir = staticSourceDir;
     }
 
     @ManagedAttribute(description = "The context-path for serving static content")
@@ -561,6 +572,9 @@ public class MainHttpServer extends ServiceSupport implements CamelContextAware,
 
                 InputStream is = null;
                 File f = new File(u);
+                if (!f.exists() && staticSourceDir != null) {
+                    f = new File(staticSourceDir, u);
+                }
                 if (f.exists()) {
                     // load directly from file system first
                     try {
@@ -573,6 +587,9 @@ public class MainHttpServer extends ServiceSupport implements CamelContextAware,
                     if (is == null) {
                         // common folder for java app servers like quarkus and spring-boot
                         is = camelContext.getClassResolver().loadResourceAsStream("META-INF/resources/" + u);
+                    }
+                    if (is == null && staticSourceDir != null) {
+                        is = camelContext.getClassResolver().loadResourceAsStream(staticSourceDir + "/" + u);
                     }
                 }
                 if (is != null) {
@@ -1309,9 +1326,10 @@ public class MainHttpServer extends ServiceSupport implements CamelContextAware,
                 if (!scheme) {
                     endpoint = endpoint + "*";
                 }
+                String quotedEndpoint = Pattern.quote(endpoint);
                 for (org.apache.camel.Route route : camelContext.getRoutes()) {
                     Endpoint e = route.getEndpoint();
-                    if (EndpointHelper.matchEndpoint(camelContext, e.getEndpointUri(), endpoint)) {
+                    if (EndpointHelper.matchEndpoint(camelContext, e.getEndpointUri(), quotedEndpoint)) {
                         target = e;
                         break;
                     }
@@ -1321,7 +1339,7 @@ public class MainHttpServer extends ServiceSupport implements CamelContextAware,
                     for (org.apache.camel.Route route : camelContext.getRoutes()) {
                         String id = route.getRouteId();
                         Endpoint e = route.getEndpoint();
-                        if (EndpointHelper.matchEndpoint(camelContext, id, endpoint)) {
+                        if (EndpointHelper.matchEndpoint(camelContext, id, quotedEndpoint)) {
                             target = e;
                             break;
                         }

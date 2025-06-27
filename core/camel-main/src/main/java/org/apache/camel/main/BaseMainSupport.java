@@ -102,6 +102,7 @@ import org.apache.camel.support.jsse.TrustAllTrustManager;
 import org.apache.camel.support.jsse.TrustManagersParameters;
 import org.apache.camel.support.scan.PackageScanHelper;
 import org.apache.camel.support.service.BaseService;
+import org.apache.camel.support.service.ServiceHelper;
 import org.apache.camel.support.startup.BacklogStartupStepRecorder;
 import org.apache.camel.support.startup.EnvStartupCondition;
 import org.apache.camel.support.startup.FileStartupCondition;
@@ -679,15 +680,24 @@ public abstract class BaseMainSupport extends BaseService {
                 || "java-flight-recorder".equals(mainConfigurationProperties.getStartupRecorder())
                 || mainConfigurationProperties.getStartupRecorder() == null) {
             // try to auto discover camel-jfr to use
-            StartupStepRecorder fr = ecc.getBootstrapFactoryFinder()
-                    .newInstance(StartupStepRecorder.FACTORY, StartupStepRecorder.class).orElse(null);
-            if (fr != null) {
-                LOG.debug("Discovered startup recorder: {} from classpath", fr);
-                fr.setRecording(mainConfigurationProperties.isStartupRecorderRecording());
-                fr.setStartupRecorderDuration(mainConfigurationProperties.getStartupRecorderDuration());
-                fr.setRecordingProfile(mainConfigurationProperties.getStartupRecorderProfile());
-                fr.setMaxDepth(mainConfigurationProperties.getStartupRecorderMaxDepth());
-                camelContext.getCamelContextExtension().setStartupStepRecorder(fr);
+            try {
+                StartupStepRecorder fr = ecc.getBootstrapFactoryFinder()
+                        .newInstance(StartupStepRecorder.FACTORY, StartupStepRecorder.class).orElse(null);
+                if (fr != null) {
+                    LOG.debug("Discovered startup recorder: {} from classpath", fr);
+                    fr.setRecording(mainConfigurationProperties.isStartupRecorderRecording());
+                    fr.setStartupRecorderDuration(mainConfigurationProperties.getStartupRecorderDuration());
+                    fr.setRecordingProfile(mainConfigurationProperties.getStartupRecorderProfile());
+                    fr.setMaxDepth(mainConfigurationProperties.getStartupRecorderMaxDepth());
+                    camelContext.getCamelContextExtension().setStartupStepRecorder(fr);
+                }
+            } catch (NoClassDefFoundError | Exception e) {
+                if (mainConfigurationProperties.getStartupRecorder() != null) {
+                    throw new IllegalArgumentException(
+                            "Flight recorder is not available in the JVM or camel-jfr is not available on the classpath due to: "
+                                                       + e.getMessage(),
+                            e);
+                }
             }
         }
     }
@@ -826,12 +836,17 @@ public abstract class BaseMainSupport extends BaseService {
 
     protected void configureRoutes(CamelContext camelContext) throws Exception {
         RoutesConfigurer configurer = doCommonRouteConfiguration(camelContext);
-        configurer.configureRoutes(camelContext);
+        ServiceHelper.startService(configurer);
+        try {
+            configurer.configureRoutes(camelContext);
+        } finally {
+            ServiceHelper.stopService(configurer);
+        }
     }
 
     private RoutesConfigurer doCommonRouteConfiguration(CamelContext camelContext) {
         // then configure and add the routes
-        RoutesConfigurer configurer = new RoutesConfigurer();
+        RoutesConfigurer configurer = new RoutesConfigurer(camelContext);
 
         routesCollector.setIgnoreLoadingError(mainConfigurationProperties.isRoutesCollectorIgnoreLoadingError());
         if (mainConfigurationProperties.isRoutesCollectorEnabled()) {
@@ -1566,8 +1581,6 @@ public abstract class BaseMainSupport extends BaseService {
 
         // and call after all properties are set
         DefaultConfigurationConfigurer.afterPropertiesSet(camelContext);
-        // and configure vault
-        DefaultConfigurationConfigurer.configureVaultRefresh(camelContext);
     }
 
     /**
@@ -2083,7 +2096,7 @@ public abstract class BaseMainSupport extends BaseService {
                 src.setBackOffMaxAttempts(config.getBackOffMaxAttempts());
             }
             if (config.getBackOffMaxDelay() > 0) {
-                src.setBackOffMaxDelay(config.getBackOffDelay());
+                src.setBackOffMaxDelay(config.getBackOffMaxDelay());
             }
             if (config.getBackOffMaxElapsedTime() > 0) {
                 src.setBackOffMaxElapsedTime(config.getBackOffMaxElapsedTime());

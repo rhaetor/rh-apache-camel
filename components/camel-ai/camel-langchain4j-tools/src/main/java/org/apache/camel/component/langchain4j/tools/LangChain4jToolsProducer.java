@@ -29,6 +29,7 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.output.FinishReason;
 import dev.langchain4j.model.output.Response;
 import org.apache.camel.Exchange;
 import org.apache.camel.InvalidPayloadException;
@@ -36,8 +37,11 @@ import org.apache.camel.component.langchain4j.tools.spec.CamelToolExecutorCache;
 import org.apache.camel.component.langchain4j.tools.spec.CamelToolSpecification;
 import org.apache.camel.support.DefaultProducer;
 import org.apache.camel.util.ObjectHelper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class LangChain4jToolsProducer extends DefaultProducer {
+    private static final Logger LOG = LoggerFactory.getLogger(LangChain4jToolsProducer.class);
 
     private final LangChain4jToolsEndpoint endpoint;
 
@@ -99,19 +103,45 @@ public class LangChain4jToolsProducer extends DefaultProducer {
         }
 
         // First talk to the model to get the tools to be called
-        final Response<AiMessage> response = chatWithLLMForTools(chatMessages, toolPair, exchange);
-        if (response == null) {
-            return null;
-        }
+        int i = 0;
+        do {
+            LOG.debug("Starting iteration {}", i);
+            final Response<AiMessage> response = chatWithLLM(chatMessages, toolPair, exchange);
+            if (isDoneExecuting(response)) {
+                return extractAiResponse(response);
+            }
 
-        // Then, talk again to call the tools and compute the final response
-        return chatWithLLMForToolCalling(chatMessages, exchange, response, toolPair);
+            // Only invoke the tools ... the response will be computed on the next loop
+            invokeTools(chatMessages, exchange, response, toolPair);
+            LOG.debug("Finished iteration {}", i);
+            i++;
+        } while (true);
     }
 
-    private String chatWithLLMForToolCalling(
+    private boolean isDoneExecuting(Response<AiMessage> response) {
+        if (!response.content().hasToolExecutionRequests()) {
+            LOG.info("Finished executing tools because of there are no more execution requests");
+            return true;
+        }
+
+        if (response.finishReason() != null) {
+            LOG.info("Finished executing tools because of {}", response.finishReason());
+
+            if (response.finishReason() == FinishReason.STOP) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void invokeTools(
             List<ChatMessage> chatMessages, Exchange exchange, Response<AiMessage> response, ToolPair toolPair) {
-        for (ToolExecutionRequest toolExecutionRequest : response.content().toolExecutionRequests()) {
+        int i = 0;
+        List<ToolExecutionRequest> toolExecutionRequests = response.content().toolExecutionRequests();
+        for (ToolExecutionRequest toolExecutionRequest : toolExecutionRequests) {
             String toolName = toolExecutionRequest.name();
+            LOG.info("Invoking tool {} ({}) of {}", i, toolName, toolExecutionRequests.size());
 
             final CamelToolSpecification camelToolSpecification = toolPair.callableTools().stream()
                     .filter(c -> c.getToolSpecification().name().equals(toolName)).findFirst().get();
@@ -124,7 +154,9 @@ public class LangChain4jToolsProducer extends DefaultProducer {
                         .forEachRemaining(name -> exchange.getMessage().setHeader(name, jsonNode.get(name)));
 
                 // Execute the consumer route
+
                 camelToolSpecification.getConsumer().getProcessor().process(exchange);
+                i++;
             } catch (Exception e) {
                 // How to handle this exception?
                 exchange.setException(e);
@@ -135,9 +167,6 @@ public class LangChain4jToolsProducer extends DefaultProducer {
                     toolExecutionRequest.name(),
                     exchange.getIn().getBody(String.class)));
         }
-
-        final Response<AiMessage> generate = this.chatLanguageModel.generate(chatMessages);
-        return extractAiResponse(generate);
     }
 
     /**
@@ -148,12 +177,12 @@ public class LangChain4jToolsProducer extends DefaultProducer {
      * @param  toolPair     the toolPair containing the available tools to be called
      * @return              the response provided by the model
      */
-    private Response<AiMessage> chatWithLLMForTools(List<ChatMessage> chatMessages, ToolPair toolPair, Exchange exchange) {
+    private Response<AiMessage> chatWithLLM(List<ChatMessage> chatMessages, ToolPair toolPair, Exchange exchange) {
         Response<AiMessage> response = this.chatLanguageModel.generate(chatMessages, toolPair.toolSpecifications());
 
         if (!response.content().hasToolExecutionRequests()) {
             exchange.getMessage().setHeader(LangChain4jTools.NO_TOOLS_CALLED_HEADER, Boolean.TRUE);
-            return null;
+            return response;
         }
 
         chatMessages.add(response.content());

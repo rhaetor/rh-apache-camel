@@ -16,6 +16,7 @@
  */
 package org.apache.camel.component.http;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -24,6 +25,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.apache.camel.support.service.ServiceSupport;
+import org.apache.camel.util.IOHelper;
 import org.apache.camel.util.json.DeserializationException;
 import org.apache.camel.util.json.JsonObject;
 import org.apache.camel.util.json.Jsoner;
@@ -39,7 +42,7 @@ import org.apache.hc.core5.http.io.entity.EntityUtils;
 import org.apache.hc.core5.http.io.entity.StringEntity;
 import org.apache.hc.core5.http.protocol.HttpContext;
 
-public class OAuth2ClientConfigurer implements HttpClientConfigurer {
+public class OAuth2ClientConfigurer extends ServiceSupport implements HttpClientConfigurer {
 
     private final String clientId;
     private final String clientSecret;
@@ -49,6 +52,7 @@ public class OAuth2ClientConfigurer implements HttpClientConfigurer {
     private final Long cachedTokensDefaultExpirySeconds;
     private final Long cachedTokensExpirationMarginSeconds;
     private final static Map<OAuth2URIAndCredentials, TokenCache> tokenCache = new HashMap<>();
+    private HttpClient httpClient;
 
     public OAuth2ClientConfigurer(String clientId, String clientSecret, String tokenEndpoint, String scope, boolean cacheTokens,
                                   long cachedTokensDefaultExpirySeconds, long cachedTokensExpirationMarginSeconds) {
@@ -63,7 +67,9 @@ public class OAuth2ClientConfigurer implements HttpClientConfigurer {
 
     @Override
     public void configureHttpClient(HttpClientBuilder clientBuilder) {
-        HttpClient httpClient = clientBuilder.build();
+        // create a new http client only used for oauth token requests
+        this.httpClient = clientBuilder.build();
+
         clientBuilder.addRequestInterceptorFirst((HttpRequest request, EntityDetails entity, HttpContext context) -> {
             URI requestUri = getUriFromRequest(request);
             OAuth2URIAndCredentials uriAndCredentials = new OAuth2URIAndCredentials(requestUri, clientId, clientSecret);
@@ -91,20 +97,17 @@ public class OAuth2ClientConfigurer implements HttpClientConfigurer {
     }
 
     private JsonObject getAccessTokenResponse(HttpClient httpClient) throws IOException {
-        String url = tokenEndpoint;
+        String bodyStr = "grant_type=client_credentials";
         if (scope != null) {
-            String sep = "?";
-            if (url.contains("?")) {
-                sep = "&";
-            }
-            url = url + sep + "scope=" + scope;
+            bodyStr += "&scope=" + scope;
         }
 
-        final HttpPost httpPost = new HttpPost(url);
+        final HttpPost httpPost = new HttpPost(tokenEndpoint);
 
         httpPost.addHeader(HttpHeaders.AUTHORIZATION,
                 HttpCredentialsHelper.generateBasicAuthHeader(clientId, clientSecret));
-        httpPost.setEntity(new StringEntity("grant_type=client_credentials", ContentType.APPLICATION_FORM_URLENCODED));
+
+        httpPost.setEntity(new StringEntity(bodyStr, ContentType.APPLICATION_FORM_URLENCODED));
 
         AtomicReference<JsonObject> result = new AtomicReference<>();
         httpClient.execute(httpPost, response -> {
@@ -184,4 +187,12 @@ public class OAuth2ClientConfigurer implements HttpClientConfigurer {
     private record OAuth2URIAndCredentials(URI uri, String clientId, String clientSecret) {
     }
 
+    @Override
+    protected void doStop() throws Exception {
+        super.doStop();
+        if (httpClient instanceof Closeable closeable) {
+            IOHelper.close(closeable);
+            httpClient = null;
+        }
+    }
 }

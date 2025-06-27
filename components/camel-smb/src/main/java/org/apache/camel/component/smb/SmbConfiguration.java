@@ -40,14 +40,14 @@ public class SmbConfiguration extends GenericFileConfiguration {
     @UriPath(description = "The name of the share directory")
     @Metadata(required = true)
     private String shareName;
+    @UriParam(label = "common", description = "The base directory within the share")
+    private String path;
     @UriParam(label = "security", description = "The username required to access the share", secret = true)
     private String username;
     @UriParam(label = "security", description = "The password to access the share", secret = true)
     private String password;
     @UriParam(label = "security", description = "The user domain")
     private String domain;
-    @UriParam(label = "consumer", description = "The path, within the share, to consume the files from")
-    private String path;
     @UriParam(label = "consumer",
               description = "The search pattern used to list the files (server side on SMB). This parameter can contain the name of a file (or multiple files, if wildcards are used) within this directory. When it is null all files are included."
                             + " Two wild card characters are supported in the search pattern. The ? (question mark) character matches a single character. If a search pattern contains one or more ? characters, then exactly that number of characters is matched by the wildcards."
@@ -73,11 +73,15 @@ public class SmbConfiguration extends GenericFileConfiguration {
                                                          + "after a Batch upload is complete. disconnectOnBatchComplete will only disconnect the current connection "
                                                          + "to the SMB share.")
     private boolean disconnectOnBatchComplete;
-    @UriParam(label = "consumer,advanced", description = "Should an exception be thrown if connection failed (exhausted)"
+    @UriParam(label = "consumer,advanced", description = "Should an exception be thrown if connection failed (exhausted). "
                                                          + "By default exception is not thrown and a <tt>WARN</tt> is logged. You can use this to enable exception "
-                                                         + "being thrown and handle the thrown exception from the {@link "
-                                                         + "org.apache.camel.spi.PollingConsumerPollStrategy} rollback method.")
+                                                         + "being thrown and handle the thrown exception from the PollingConsumerPollStrategy rollback method.")
     private boolean throwExceptionOnConnectFailed;
+    @UriParam(label = "consumer,advanced",
+              description = "Whether the starting directory must exist. Mind that the autoCreate option is default enabled, which means the "
+                            + "starting directory is normally auto created if it doesn't exist. You can disable autoCreate and enable this to "
+                            + "ensure the starting directory must exist. Will throw an exception if the directory doesn't exist.")
+    private boolean startingDirectoryMustExist;
     @Metadata(autowired = true)
     @UriParam(label = "advanced",
               description = "An optional SMB client configuration, can be used to configure client specific "
@@ -228,6 +232,14 @@ public class SmbConfiguration extends GenericFileConfiguration {
         this.throwExceptionOnConnectFailed = throwExceptionOnConnectFailed;
     }
 
+    public boolean isStartingDirectoryMustExist() {
+        return startingDirectoryMustExist;
+    }
+
+    public void setStartingDirectoryMustExist(boolean startingDirectoryMustExist) {
+        this.startingDirectoryMustExist = startingDirectoryMustExist;
+    }
+
     public SmbConfig getSmbConfig() {
         return smbConfig;
     }
@@ -237,7 +249,7 @@ public class SmbConfiguration extends GenericFileConfiguration {
     }
 
     /**
-     * Returns human readable server information for logging purpose
+     * Returns human-readable server information for logging purpose
      */
     public String remoteServerInformation() {
         return protocol + "://" + (username != null ? username : "anonymous") + "@" + hostname + ":" + getPort();

@@ -43,7 +43,20 @@ public class Export extends ExportBaseCommand {
     }
 
     @Override
+    public boolean disarrangeLogging() {
+        return false; // export logs specially to a camel-export.log
+    }
+
+    @Override
     protected Integer export() throws Exception {
+        int answer = doExport();
+        if (answer == 0 && !quiet) {
+            printer().println("Project export successful!");
+        }
+        return answer;
+    }
+
+    protected Integer doExport() throws Exception {
         // application.properties
         doLoadAndInitProfileProperties(new File("application.properties"));
         if (profile != null) {
@@ -80,7 +93,6 @@ public class Export extends ExportBaseCommand {
                 return 1;
             }
         }
-
     }
 
     private void doLoadAndInitProfileProperties(File file) throws Exception {
@@ -160,6 +172,7 @@ public class Export extends ExportBaseCommand {
         cmd.excludes = this.excludes;
         cmd.ignoreLoadingError = this.ignoreLoadingError;
         cmd.lazyBean = this.lazyBean;
+        cmd.verbose = this.verbose;
         cmd.applicationProperties = this.applicationProperties;
         // run export
         return cmd.export();
@@ -235,8 +248,10 @@ public class Export extends ExportBaseCommand {
                     case "org.apache.camel.springboot" -> {
                         String a1 = o1.getArtifactId();
                         // main/core/engine first
-                        if ("camel-spring-boot-engine-starter".equals(a1)) {
+                        if ("camel-spring-boot-starter".equals(a1)) {
                             return 21;
+                        } else if ("camel-spring-boot-engine-starter".equals(a1)) {
+                            return 22;
                         }
                         return 20;
                     }

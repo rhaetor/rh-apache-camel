@@ -112,6 +112,10 @@ public abstract class ExportBaseCommand extends CamelCommand {
                         description = "The integration name. Use this when the name should not get derived otherwise.")
     protected String name;
 
+    @CommandLine.Option(names = { "--port" },
+                        description = "Embeds a local HTTP server on this port", defaultValue = "8080")
+    int port;
+
     @CommandLine.Option(names = { "--gav" }, description = "The Maven group:artifact:version")
     protected String gav;
 
@@ -127,11 +131,11 @@ public abstract class ExportBaseCommand extends CamelCommand {
                         description = "Optional location of Maven settings-security.xml file to decrypt settings.xml")
     protected String mavenSettingsSecurity;
 
-    @CommandLine.Option(names = { "--maven-central-enabled" },
+    @CommandLine.Option(names = { "--maven-central-enabled" }, defaultValue = "true",
                         description = "Whether downloading JARs from Maven Central repository is enabled")
     protected boolean mavenCentralEnabled = true;
 
-    @CommandLine.Option(names = { "--maven-apache-snapshot-enabled" },
+    @CommandLine.Option(names = { "--maven-apache-snapshot-enabled" }, defaultValue = "true",
                         description = "Whether downloading JARs from ASF Maven Snapshot repository is enabled")
     protected boolean mavenApacheSnapshotEnabled = true;
 
@@ -198,7 +202,7 @@ public abstract class ExportBaseCommand extends CamelCommand {
             "--directory" }, description = "Directory where the project will be exported", defaultValue = ".")
     protected String exportDir;
 
-    @CommandLine.Option(names = { "--clean-dir" },
+    @CommandLine.Option(names = { "--clean-dir" }, defaultValue = "false",
                         description = "If exporting to current directory (default) then all existing files are preserved. Enabling this option will force cleaning current directory including all sub dirs (use this with care)")
     protected boolean cleanExportDir;
 
@@ -210,7 +214,8 @@ public abstract class ExportBaseCommand extends CamelCommand {
                                       + "Use false to turn off and not include package name in the Java source files.")
     protected String packageName;
 
-    @CommandLine.Option(names = { "--fresh" }, description = "Make sure we use fresh (i.e. non-cached) resources")
+    @CommandLine.Option(names = { "--fresh" }, defaultValue = "false",
+                        description = "Make sure we use fresh (i.e. non-cached) resources")
     protected boolean fresh;
 
     @CommandLine.Option(names = { "--download" }, defaultValue = "true",
@@ -226,25 +231,27 @@ public abstract class ExportBaseCommand extends CamelCommand {
     protected String[] applicationProperties;
 
     @CommandLine.Option(names = { "--logging" }, defaultValue = "false",
-                        description = "Can be used to turn on logging (logs to file in <user home>/.camel directory)")
+                        description = "Can be used to turn on logging to console (logs by default to file in <user home>/.camel directory)")
     protected boolean logging;
 
     @CommandLine.Option(names = { "--quiet" }, defaultValue = "false",
                         description = "Will be quiet, only print when error occurs")
     protected boolean quiet;
 
-    @CommandLine.Option(names = { "--ignore-loading-error" },
+    @CommandLine.Option(names = { "--verbose" }, defaultValue = "false",
+                        description = "Verbose output of startup activity (dependency resolution and downloading")
+    protected boolean verbose;
+
+    @CommandLine.Option(names = { "--ignore-loading-error" }, defaultValue = "false",
                         description = "Whether to ignore route loading and compilation errors (use this with care!)")
     protected boolean ignoreLoadingError;
 
-    @CommandLine.Option(names = { "--lazy-bean" },
+    @CommandLine.Option(names = { "--lazy-bean" }, defaultValue = "true",
                         description = "Whether to use lazy bean initialization (can help with complex classloading issues")
-    protected boolean lazyBean;
+    protected boolean lazyBean = true;
 
     protected boolean symbolicLink;     // copy source files using symbolic link
-
     protected boolean javaLiveReload; // reload java codes in dev
-
     public String pomTemplateName;   // support for specialised pom templates
 
     public ExportBaseCommand(CamelJBangMain main) {
@@ -255,9 +262,10 @@ public abstract class ExportBaseCommand extends CamelCommand {
     public Integer doCall() throws Exception {
         // configure logging first
         if (logging) {
-            RuntimeUtil.configureLog(loggingLevel, false, false, false, true, null, null);
+            // log to console instead of camel-export.log file
+            RuntimeUtil.configureLog(loggingLevel, false, false, false, false, null, null);
         } else {
-            RuntimeUtil.configureLog("off", false, false, false, true, null, null);
+            RuntimeUtil.configureLog(loggingLevel, false, false, false, true, null, null);
         }
 
         if (!quiet) {
@@ -319,11 +327,13 @@ public abstract class ExportBaseCommand extends CamelCommand {
         return null;
     }
 
-    protected Integer runSilently(boolean ignoreLoadingError, boolean lazyBean) throws Exception {
+    protected Integer runSilently(boolean ignoreLoadingError, boolean lazyBean, boolean verbose) throws Exception {
         Run run = new Run(getMain());
         // need to declare the profile to use for run
         run.dependencies = dependencies;
         run.files = files;
+        run.name = name;
+        run.port = port;
         run.excludes = excludes;
         run.openapi = openapi;
         run.download = download;
@@ -331,6 +341,7 @@ public abstract class ExportBaseCommand extends CamelCommand {
         run.camelVersion = camelVersion;
         run.camelSpringBootVersion = camelSpringBootVersion;
         run.quarkusVersion = quarkusVersion;
+        run.quarkusGroupId = quarkusGroupId;
         run.springBootVersion = springBootVersion;
         run.kameletsVersion = kameletsVersion;
         run.localKameletDir = localKameletDir;
@@ -338,9 +349,8 @@ public abstract class ExportBaseCommand extends CamelCommand {
         run.lazyBean = lazyBean;
         run.property = applicationProperties;
         run.repositories = repositories;
-        run.logging = false;
-        run.loggingLevel = "off";
-
+        run.verbose = verbose;
+        run.logging = logging;
         return run.runExport(ignoreLoadingError);
     }
 
@@ -696,37 +706,36 @@ public abstract class ExportBaseCommand extends CamelCommand {
             File settings, File profile, File targetDir,
             Function<Properties, Object> customize)
             throws Exception {
-        Properties prop = new CamelCaseOrderedProperties();
-        RuntimeUtil.loadProperties(prop, settings);
+        Properties settingsProps = new CamelCaseOrderedProperties();
+        RuntimeUtil.loadProperties(settingsProps, settings);
 
-        Properties prop2 = new CamelCaseOrderedProperties();
+        Properties profileProps = new CamelCaseOrderedProperties();
         if (profile.exists()) {
-            RuntimeUtil.loadProperties(prop2, profile);
+            RuntimeUtil.loadProperties(profileProps, profile);
         }
-        prop2.putAll(prop);
-        prepareApplicationProperties(prop2);
+        profileProps.putAll(settingsProps);
+        prepareApplicationProperties(profileProps);
 
-        for (Map.Entry<Object, Object> entry : prop.entrySet()) {
+        for (Map.Entry<Object, Object> entry : settingsProps.entrySet()) {
             String key = entry.getKey().toString();
             boolean skip = !key.startsWith("camel.main")
                     || "camel.main.routesCompileDirectory".equals(key)
                     || "camel.main.routesReloadEnabled".equals(key);
             if (skip) {
-                prop2.remove(key);
+                profileProps.remove(key);
             }
         }
 
         if (customize != null) {
-            customize.apply(prop2);
+            customize.apply(profileProps);
         }
 
         // User properties
-        Properties prop3 = new CamelCaseOrderedProperties();
-        prepareUserProperties(prop3);
+        Properties userProps = new CamelCaseOrderedProperties();
+        prepareUserProperties(userProps);
 
-        FileOutputStream fos = new FileOutputStream(new File(targetDir, "application.properties"), false);
-        try {
-            for (Map.Entry<Object, Object> entry : prop2.entrySet()) {
+        try (var fos = new FileOutputStream(new File(targetDir, "application.properties"), false)) {
+            for (Map.Entry<Object, Object> entry : profileProps.entrySet()) {
                 String k = entry.getKey().toString();
                 String v = entry.getValue().toString();
 
@@ -752,18 +761,16 @@ public abstract class ExportBaseCommand extends CamelCommand {
                         fos.write("\n".getBytes(StandardCharsets.UTF_8));
                     }
                 }
-                for (Map.Entry<Object, Object> entryUserProp : prop3.entrySet()) {
-                    String uK = entryUserProp.getKey().toString();
-                    String uV = entryUserProp.getValue().toString();
-                    String line = applicationPropertyLine(uK, uV);
-                    if (line != null && !line.isBlank()) {
-                        fos.write(line.getBytes(StandardCharsets.UTF_8));
-                        fos.write("\n".getBytes(StandardCharsets.UTF_8));
-                    }
+            }
+            for (Map.Entry<Object, Object> entryUserProp : userProps.entrySet()) {
+                String uK = entryUserProp.getKey().toString();
+                String uV = entryUserProp.getValue().toString();
+                String line = applicationPropertyLine(uK, uV);
+                if (line != null && !line.isBlank()) {
+                    fos.write(line.getBytes(StandardCharsets.UTF_8));
+                    fos.write("\n".getBytes(StandardCharsets.UTF_8));
                 }
             }
-        } finally {
-            IOHelper.close(fos);
         }
     }
 
@@ -804,10 +811,10 @@ public abstract class ExportBaseCommand extends CamelCommand {
         IOHelper.copyAndCloseInput(is, new FileOutputStream(new File(BUILD_DIR, "mvnw")));
         is = ExportBaseCommand.class.getClassLoader().getResourceAsStream("maven-wrapper/mvnw.cmd");
         IOHelper.copyAndCloseInput(is, new FileOutputStream(new File(BUILD_DIR, "mvnw.cmd")));
-        is = ExportBaseCommand.class.getClassLoader().getResourceAsStream("maven-wrapper/.mvn/wrapper/maven-wrapper.jar");
+        is = ExportBaseCommand.class.getClassLoader().getResourceAsStream("maven-wrapper/maven-wrapper.jar");
         IOHelper.copyAndCloseInput(is, new FileOutputStream(new File(wrapper, "maven-wrapper.jar")));
         is = ExportBaseCommand.class.getClassLoader()
-                .getResourceAsStream("maven-wrapper/.mvn/wrapper/maven-wrapper.properties");
+                .getResourceAsStream("maven-wrapper/maven-wrapper.properties");
         IOHelper.copyAndCloseInput(is, new FileOutputStream(new File(wrapper, "maven-wrapper.properties")));
         // set execute file permission on mvnw/mvnw.cmd files
         File file = new File(BUILD_DIR, "mvnw");

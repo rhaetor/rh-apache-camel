@@ -32,10 +32,12 @@ import org.apache.camel.Processor;
 import org.apache.camel.component.file.GenericFile;
 import org.apache.camel.component.file.GenericFileConsumer;
 import org.apache.camel.component.file.GenericFileEndpoint;
+import org.apache.camel.component.file.GenericFileOperationFailedException;
 import org.apache.camel.component.file.GenericFileOperations;
 import org.apache.camel.component.file.GenericFileProcessStrategy;
 import org.apache.camel.support.SynchronizationAdapter;
 import org.apache.camel.util.FileUtil;
+import org.apache.camel.util.ObjectHelper;
 import org.apache.camel.util.StringHelper;
 import org.apache.camel.util.function.Suppliers;
 import org.slf4j.Logger;
@@ -50,6 +52,8 @@ public class SmbConsumer extends GenericFileConsumer<FileIdBothDirectoryInformat
     private final String endpointPath;
     protected transient boolean loggedIn;
     protected transient boolean loggedInWarning;
+    protected transient boolean autoCreatedDone;
+    protected transient boolean autoCreateWarning;
 
     public SmbConsumer(SmbEndpoint endpoint, Processor processor,
                        GenericFileOperations<FileIdBothDirectoryInformation> fileOperations,
@@ -201,18 +205,34 @@ public class SmbConsumer extends GenericFileConsumer<FileIdBothDirectoryInformat
         if (LOG.isTraceEnabled()) {
             LOG.trace("prePollCheck on {}", getEndpoint());
         }
+        Exception cause;
         try {
             getOperations().connectIfNecessary();
             loggedIn = true;
+            if (!autoCreatedDone) {
+                autoCreateIfNecessary();
+                autoCreatedDone = true;
+            }
         } catch (Exception e) {
+            cause = e;
+            String msg = "Cannot connect/login to: " + remoteServer();
+            if (loggedIn && !autoCreatedDone) {
+                msg = "Cannot auto-create starting directory at: " + remoteServer();
+            }
+            LOG.debug(msg, cause);
             loggedIn = false;
-
-            // login failed should we thrown exception
             if (configuration.isThrowExceptionOnConnectFailed()) {
                 throw e;
             }
         }
-
+        if (loggedIn && !autoCreatedDone) {
+            String message = "Cannot auto-create starting directory at: " + remoteServer() + ". Will skip this poll.";
+            if (!autoCreateWarning) {
+                LOG.warn(message);
+                autoCreateWarning = true;
+            }
+            return false;
+        }
         if (!loggedIn) {
             String message = "Cannot connect/login to: " + remoteServer() + ". Will skip this poll.";
             if (!loggedInWarning) {
@@ -229,6 +249,14 @@ public class SmbConsumer extends GenericFileConsumer<FileIdBothDirectoryInformat
         forceConsumerAsReady();
 
         return true;
+    }
+
+    protected void autoCreateIfNecessary() throws GenericFileOperationFailedException {
+        if (endpoint.isAutoCreate() && hasStartingDirectory()) {
+            String dir = endpoint.getConfiguration().getDirectory();
+            LOG.debug("Auto creating directory: {}", dir);
+            operations.buildDirectory(dir, true);
+        }
     }
 
     /**
@@ -338,10 +366,30 @@ public class SmbConsumer extends GenericFileConsumer<FileIdBothDirectoryInformat
 
     @Override
     protected void doStart() throws Exception {
+        // turn off scheduler first, so autoCreate is handled before scheduler starts
         boolean startScheduler = isStartScheduler();
         setStartScheduler(false);
         try {
             super.doStart();
+            if (endpoint.isAutoCreate() && hasStartingDirectory()) {
+                String dir = endpoint.getConfiguration().getDirectory();
+                LOG.debug("Auto creating directory: {}", dir);
+                try {
+                    operations.buildDirectory(dir, true);
+                } catch (GenericFileOperationFailedException e) {
+                    // log a WARN as we want to start the consumer.
+                    LOG.warn(
+                            "Error auto creating directory: " + dir + " due " + e.getMessage() + ". This exception is ignored.",
+                            e);
+                }
+            } else if (configuration.isStartingDirectoryMustExist() && hasStartingDirectory()) {
+                String dir = endpoint.getConfiguration().getDirectory();
+                SmbOperations ops = (SmbOperations) operations;
+                boolean exists = ops.existsFolder(dir);
+                if (!exists) {
+                    throw new GenericFileOperationFailedException("Starting directory does not exist: " + dir);
+                }
+            }
         } finally {
             if (startScheduler) {
                 setStartScheduler(true);
@@ -358,6 +406,18 @@ public class SmbConsumer extends GenericFileConsumer<FileIdBothDirectoryInformat
 
     private SmbOperations getOperations() {
         return (SmbOperations) operations;
+    }
+
+    /**
+     * Whether there is a starting directory configured.
+     */
+    private boolean hasStartingDirectory() {
+        String dir = endpoint.getConfiguration().getDirectory();
+        if (ObjectHelper.isEmpty(dir)) {
+            return false;
+        }
+        // should not be an empty separator
+        return !dir.equals("/") && !dir.equals("\\");
     }
 
     private boolean isDirectory(FileIdBothDirectoryInformation file) {

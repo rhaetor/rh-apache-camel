@@ -68,7 +68,6 @@ import org.apache.camel.support.DefaultExchange;
 import org.apache.camel.support.EventHelper;
 import org.apache.camel.support.ExchangeHelper;
 import org.apache.camel.support.LRUCacheFactory;
-import org.apache.camel.support.PatternHelper;
 import org.apache.camel.support.PluginHelper;
 import org.apache.camel.support.service.ServiceHelper;
 import org.apache.camel.util.CastUtils;
@@ -80,6 +79,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
+import static org.apache.camel.processor.ProcessorHelper.prepareMDCParallelTask;
 import static org.apache.camel.util.ObjectHelper.notNull;
 
 /**
@@ -383,7 +383,7 @@ public class MulticastProcessor extends AsyncProcessorSupport
 
     protected void schedule(final Runnable runnable, boolean sync) {
         if (isParallelProcessing()) {
-            Runnable task = prepareParallelTask(runnable);
+            Runnable task = prepareMDCParallelTask(camelContext, runnable);
             try {
                 executorService.submit(() -> reactiveExecutor.scheduleSync(task));
             } catch (RejectedExecutionException e) {
@@ -396,37 +396,6 @@ public class MulticastProcessor extends AsyncProcessorSupport
         } else {
             reactiveExecutor.schedule(runnable);
         }
-    }
-
-    private Runnable prepareParallelTask(Runnable runnable) {
-        Runnable answer = runnable;
-
-        // if MDC is enabled we need to propagate the information
-        // to the sub task which is executed on another thread from the thread pool
-        if (camelContext.isUseMDCLogging()) {
-            String pattern = camelContext.getMDCLoggingKeysPattern();
-            Map<String, String> mdc = MDC.getCopyOfContextMap();
-            if (mdc != null && !mdc.isEmpty()) {
-                answer = () -> {
-                    try {
-                        if (pattern == null || "*".equals(pattern)) {
-                            mdc.forEach(MDC::put);
-                        } else {
-                            final String[] patterns = pattern.split(",");
-                            mdc.forEach((k, v) -> {
-                                if (PatternHelper.matchPatterns(k, patterns)) {
-                                    MDC.put(k, v);
-                                }
-                            });
-                        }
-                    } finally {
-                        runnable.run();
-                    }
-                };
-            }
-        }
-
-        return answer;
     }
 
     protected abstract class MulticastTask implements Runnable, Rejectable {
@@ -604,8 +573,7 @@ public class MulticastProcessor extends AsyncProcessorSupport
                     // compute time taken if sending to another endpoint
                     StopWatch watch = beforeSend(pair);
 
-                    AsyncProcessor async = AsyncProcessorConverterHelper.convert(pair.getProcessor());
-                    async.process(exchange, doneSync -> {
+                    AsyncCallback taskCallback = (doneSync) -> {
                         afterSend(pair, watch);
 
                         // Decide whether to continue with the multicast or not; similar logic to the Pipeline
@@ -640,7 +608,21 @@ public class MulticastProcessor extends AsyncProcessorSupport
                         if (hasNext && !isParallelProcessing()) {
                             schedule(this);
                         }
-                    });
+                    };
+
+                    AsyncProcessor async = AsyncProcessorConverterHelper.convert(pair.getProcessor());
+                    if (synchronous) {
+                        // force synchronous processing using await manager
+                        // to restrict total number of threads to be bound by the thread-pool of this EIP,
+                        // as otherwise in case of async processing then other thread pools can cause
+                        // unbounded thread use that cannot be controlled by Camel
+                        awaitManager.process(async, exchange);
+                        taskCallback.done(true);
+                    } else {
+                        // async processing in reactive-mode which can use as many threads as possible
+                        // if the downstream processors are async and use different threads
+                        async.process(exchange, taskCallback);
+                    }
                 });
                 // after submitting this pair then move on to the next pair (if in parallel mode)
                 if (hasNext && isParallelProcessing()) {

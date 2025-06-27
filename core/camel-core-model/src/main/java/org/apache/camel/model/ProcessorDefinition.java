@@ -41,7 +41,6 @@ import org.apache.camel.Exchange;
 import org.apache.camel.ExchangePattern;
 import org.apache.camel.Expression;
 import org.apache.camel.LoggingLevel;
-import org.apache.camel.NamedNode;
 import org.apache.camel.Predicate;
 import org.apache.camel.Processor;
 import org.apache.camel.builder.DataFormatClause;
@@ -689,11 +688,26 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
             // set id on this
             setId(id);
         } else {
+            List<ProcessorDefinition<?>> outputs = null;
+            if (this instanceof NoOutputDefinition<Type>) {
+                // this does not accept output so it should be on the parent
+                if (getParent() != null) {
+                    outputs = getParent().getOutputs();
+                }
+            } else if (this instanceof OutputExpressionNode) {
+                outputs = getOutputs();
+            } else if (this instanceof ExpressionNode) {
+                // this does not accept output so it should be on the parent
+                if (getParent() != null) {
+                    outputs = getParent().getOutputs();
+                }
+            } else {
+                outputs = getOutputs();
+            }
 
             // set it on last output as this is what the user means to do
             // for Block(s) with non empty getOutputs() the id probably refers
             // to the last definition in the current Block
-            List<ProcessorDefinition<?>> outputs = getOutputs();
             if (!blocks.isEmpty()) {
                 if (blocks.getLast() instanceof ProcessorDefinition) {
                     ProcessorDefinition<?> block = (ProcessorDefinition<?>) blocks.getLast();
@@ -702,7 +716,8 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
                     }
                 }
             }
-            if (!getOutputs().isEmpty()) {
+            if (outputs != null && !outputs.isEmpty()) {
+                // set id on last output
                 outputs.get(outputs.size() - 1).setId(id);
             } else {
                 // the output could be empty
@@ -1073,25 +1088,24 @@ public abstract class ProcessorDefinition<Type extends ProcessorDefinition<Type>
     public ChoiceDefinition endChoice() {
         ProcessorDefinition<?> def = this;
 
-        // are we nested choice?
-        if (def.getParent() instanceof ChoiceDefinition cho) {
+        // are we already a choice
+        if (def instanceof ChoiceDefinition cho) {
             return cho;
+        }
+
+        // end and find the choice
+        def = end();
+        if (def instanceof RouteDefinition) {
+            // okay that was too far down so go back up
+            def = this;
         }
 
         // are we already a choice?
         if (def instanceof ChoiceDefinition choice) {
             return choice;
-        }
-
-        // okay end this and get back to the choice
-        def = end();
-        NamedNode p = def.getParent();
-        if ("when".equals(p.getShortName())) {
-            return (ChoiceDefinition) p;
-        } else if ("otherwise".equals(p.getShortName())) {
-            return (ChoiceDefinition) p;
         } else {
-            return (ChoiceDefinition) def;
+            throw new IllegalArgumentException(
+                    "Cannot endChoice() to find current/parent choice DSL. If you have nested choice then you may need to end().endChoice() to go back to parent choice.");
         }
     }
 

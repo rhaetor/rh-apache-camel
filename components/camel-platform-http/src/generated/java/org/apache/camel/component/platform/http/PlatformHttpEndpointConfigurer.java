@@ -59,8 +59,12 @@ public class PlatformHttpEndpointConfigurer extends PropertyConfigurerSupport im
         case "populatebodywithform":
         case "populateBodyWithForm": target.setPopulateBodyWithForm(property(camelContext, boolean.class, value)); return true;
         case "produces": target.setProduces(property(camelContext, java.lang.String.class, value)); return true;
+        case "requesttimeout":
+        case "requestTimeout": target.setRequestTimeout(property(camelContext, long.class, value)); return true;
         case "returnhttprequestheaders":
         case "returnHttpRequestHeaders": target.setReturnHttpRequestHeaders(property(camelContext, boolean.class, value)); return true;
+        case "usebodyhandler":
+        case "useBodyHandler": target.setUseBodyHandler(property(camelContext, boolean.class, value)); return true;
         case "usecookiehandler":
         case "useCookieHandler": target.setUseCookieHandler(property(camelContext, boolean.class, value)); return true;
         case "usestreaming":
@@ -108,8 +112,12 @@ public class PlatformHttpEndpointConfigurer extends PropertyConfigurerSupport im
         case "populatebodywithform":
         case "populateBodyWithForm": return boolean.class;
         case "produces": return java.lang.String.class;
+        case "requesttimeout":
+        case "requestTimeout": return long.class;
         case "returnhttprequestheaders":
         case "returnHttpRequestHeaders": return boolean.class;
+        case "usebodyhandler":
+        case "useBodyHandler": return boolean.class;
         case "usecookiehandler":
         case "useCookieHandler": return boolean.class;
         case "usestreaming":
@@ -158,8 +166,12 @@ public class PlatformHttpEndpointConfigurer extends PropertyConfigurerSupport im
         case "populatebodywithform":
         case "populateBodyWithForm": return target.isPopulateBodyWithForm();
         case "produces": return target.getProduces();
+        case "requesttimeout":
+        case "requestTimeout": return target.getRequestTimeout();
         case "returnhttprequestheaders":
         case "returnHttpRequestHeaders": return target.isReturnHttpRequestHeaders();
+        case "usebodyhandler":
+        case "useBodyHandler": return target.isUseBodyHandler();
         case "usecookiehandler":
         case "useCookieHandler": return target.isUseCookieHandler();
         case "usestreaming":

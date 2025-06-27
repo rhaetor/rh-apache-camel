@@ -155,6 +155,20 @@ public interface SmbEndpointBuilderFactory {
             return this;
         }
         /**
+         * The base directory within the share.
+         * 
+         * The option is a: <code>java.lang.String</code> type.
+         * 
+         * Group: common
+         * 
+         * @param path the value to set
+         * @return the dsl builder
+         */
+        default SmbEndpointConsumerBuilder path(String path) {
+            doSetProperty("path", path);
+            return this;
+        }
+        /**
          * If true, the file will be deleted after it is processed successfully.
          * 
          * The option is a: <code>boolean</code> type.
@@ -235,20 +249,6 @@ public interface SmbEndpointBuilderFactory {
          */
         default SmbEndpointConsumerBuilder noop(String noop) {
             doSetProperty("noop", noop);
-            return this;
-        }
-        /**
-         * The path, within the share, to consume the files from.
-         * 
-         * The option is a: <code>java.lang.String</code> type.
-         * 
-         * Group: consumer
-         * 
-         * @param path the value to set
-         * @return the dsl builder
-         */
-        default SmbEndpointConsumerBuilder path(String path) {
-            doSetProperty("path", path);
             return this;
         }
         /**
@@ -680,14 +680,12 @@ public interface SmbEndpointBuilderFactory {
             return this;
         }
         /**
-         * Option to use the Idempotent Consumer EIP pattern to let Camel skip
-         * already processed files. Will by default use a memory based LRUCache
-         * that holds 1000 entries. If noop=true then idempotent will be enabled
-         * as well to avoid consuming the same files over and over again.
+         * Sets whether to eagerly add the filename to the idempotent repository
+         * or wait until the exchange is complete.
          * 
          * The option is a: <code>java.lang.Boolean</code> type.
          * 
-         * Default: false
+         * Default: true
          * Group: filter
          * 
          * @param idempotentEager the value to set
@@ -698,15 +696,13 @@ public interface SmbEndpointBuilderFactory {
             return this;
         }
         /**
-         * Option to use the Idempotent Consumer EIP pattern to let Camel skip
-         * already processed files. Will by default use a memory based LRUCache
-         * that holds 1000 entries. If noop=true then idempotent will be enabled
-         * as well to avoid consuming the same files over and over again.
+         * Sets whether to eagerly add the filename to the idempotent repository
+         * or wait until the exchange is complete.
          * 
          * The option will be converted to a <code>java.lang.Boolean</code>
          * type.
          * 
-         * Default: false
+         * Default: true
          * Group: filter
          * 
          * @param idempotentEager the value to set
@@ -2303,11 +2299,48 @@ public interface SmbEndpointBuilderFactory {
             return this;
         }
         /**
-         * Should an exception be thrown if connection failed (exhausted)By
+         * Whether the starting directory must exist. Mind that the autoCreate
+         * option is default enabled, which means the starting directory is
+         * normally auto created if it doesn't exist. You can disable autoCreate
+         * and enable this to ensure the starting directory must exist. Will
+         * throw an exception if the directory doesn't exist.
+         * 
+         * The option is a: <code>boolean</code> type.
+         * 
+         * Default: false
+         * Group: consumer (advanced)
+         * 
+         * @param startingDirectoryMustExist the value to set
+         * @return the dsl builder
+         */
+        default AdvancedSmbEndpointConsumerBuilder startingDirectoryMustExist(boolean startingDirectoryMustExist) {
+            doSetProperty("startingDirectoryMustExist", startingDirectoryMustExist);
+            return this;
+        }
+        /**
+         * Whether the starting directory must exist. Mind that the autoCreate
+         * option is default enabled, which means the starting directory is
+         * normally auto created if it doesn't exist. You can disable autoCreate
+         * and enable this to ensure the starting directory must exist. Will
+         * throw an exception if the directory doesn't exist.
+         * 
+         * The option will be converted to a <code>boolean</code> type.
+         * 
+         * Default: false
+         * Group: consumer (advanced)
+         * 
+         * @param startingDirectoryMustExist the value to set
+         * @return the dsl builder
+         */
+        default AdvancedSmbEndpointConsumerBuilder startingDirectoryMustExist(String startingDirectoryMustExist) {
+            doSetProperty("startingDirectoryMustExist", startingDirectoryMustExist);
+            return this;
+        }
+        /**
+         * Should an exception be thrown if connection failed (exhausted). By
          * default exception is not thrown and a WARN is logged. You can use
          * this to enable exception being thrown and handle the thrown exception
-         * from the org.apache.camel.spi.PollingConsumerPollStrategy rollback
-         * method.
+         * from the PollingConsumerPollStrategy rollback method.
          * 
          * The option is a: <code>boolean</code> type.
          * 
@@ -2322,11 +2355,10 @@ public interface SmbEndpointBuilderFactory {
             return this;
         }
         /**
-         * Should an exception be thrown if connection failed (exhausted)By
+         * Should an exception be thrown if connection failed (exhausted). By
          * default exception is not thrown and a WARN is logged. You can use
          * this to enable exception being thrown and handle the thrown exception
-         * from the org.apache.camel.spi.PollingConsumerPollStrategy rollback
-         * method.
+         * from the PollingConsumerPollStrategy rollback method.
          * 
          * The option will be converted to a <code>boolean</code> type.
          * 
@@ -2592,6 +2624,20 @@ public interface SmbEndpointBuilderFactory {
          */
         default SmbEndpointProducerBuilder fileName(String fileName) {
             doSetProperty("fileName", fileName);
+            return this;
+        }
+        /**
+         * The base directory within the share.
+         * 
+         * The option is a: <code>java.lang.String</code> type.
+         * 
+         * Group: common
+         * 
+         * @param path the value to set
+         * @return the dsl builder
+         */
+        default SmbEndpointProducerBuilder path(String path) {
+            doSetProperty("path", path);
             return this;
         }
         /**
@@ -3371,6 +3417,20 @@ public interface SmbEndpointBuilderFactory {
             return this;
         }
         /**
+         * The base directory within the share.
+         * 
+         * The option is a: <code>java.lang.String</code> type.
+         * 
+         * Group: common
+         * 
+         * @param path the value to set
+         * @return the dsl builder
+         */
+        default SmbEndpointBuilder path(String path) {
+            doSetProperty("path", path);
+            return this;
+        }
+        /**
          * The user domain.
          * 
          * The option is a: <code>java.lang.String</code> type.
@@ -3848,6 +3908,18 @@ public interface SmbEndpointBuilderFactory {
         @Deprecated
         public String smbFileExists() {
             return "CamelSmbFileExists";
+        }
+        /**
+         * UNC path to the retrieved file.
+         * 
+         * The option is a: {@code String} type.
+         * 
+         * Group: consumer
+         * 
+         * @return the name of the header {@code SmbUncPath}.
+         */
+        public String smbUncPath() {
+            return "CamelSmbUncPath";
         }
     }
     static SmbEndpointBuilder endpointBuilder(String componentName, String path) {

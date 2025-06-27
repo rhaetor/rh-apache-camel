@@ -16,6 +16,7 @@
  */
 package org.apache.camel.component.smb;
 
+import java.util.Arrays;
 import java.util.Map;
 
 import com.hierynomus.msfscc.fileinformation.FileIdBothDirectoryInformation;
@@ -39,6 +40,7 @@ import org.apache.camel.spi.Metadata;
 import org.apache.camel.spi.UriEndpoint;
 import org.apache.camel.spi.UriParam;
 import org.apache.camel.support.processor.idempotent.MemoryIdempotentRepository;
+import org.apache.camel.util.ObjectHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -49,7 +51,7 @@ import org.slf4j.LoggerFactory;
              headersClass = SmbConstants.class, category = { Category.FILE })
 @Metadata(excludeProperties = "appendChars,readLockIdempotentReleaseAsync,readLockIdempotentReleaseAsyncPoolSize,"
                               + "readLockIdempotentReleaseDelay,readLockIdempotentReleaseExecutorService,"
-                              + "directoryMustExist,extendedAttributes,probeContentType,startingDirectoryMustExist,"
+                              + "directoryMustExist,extendedAttributes,probeContentType,"
                               + "startingDirectoryMustHaveAccess,chmodDirectory,forceWrites,copyAndDeleteOnRenameFail,"
                               + "renameUsingCopy,synchronous")
 public class SmbEndpoint extends GenericFileEndpoint<FileIdBothDirectoryInformation> implements EndpointServiceLocation {
@@ -57,7 +59,7 @@ public class SmbEndpoint extends GenericFileEndpoint<FileIdBothDirectoryInformat
     private static final Logger LOG = LoggerFactory.getLogger(SmbEndpoint.class);
 
     @UriParam
-    protected SmbConfiguration configuration;
+    private SmbConfiguration configuration;
 
     protected SmbEndpoint(String uri, SmbComponent component, SmbConfiguration configuration) {
         super(uri, component);
@@ -136,7 +138,7 @@ public class SmbEndpoint extends GenericFileEndpoint<FileIdBothDirectoryInformat
     }
 
     @Override
-    public GenericFileConsumer<FileIdBothDirectoryInformation> createConsumer(Processor processor) {
+    public GenericFileConsumer<FileIdBothDirectoryInformation> createConsumer(Processor processor) throws Exception {
         // if noop=true then idempotent should also be configured
         if (isNoop() && !isIdempotentSet()) {
             LOG.info("Endpoint is configured with noop=true so forcing endpoint to be idempotent as well");
@@ -149,12 +151,29 @@ public class SmbEndpoint extends GenericFileEndpoint<FileIdBothDirectoryInformat
             idempotentRepository = MemoryIdempotentRepository.memoryIdempotentRepository(DEFAULT_IDEMPOTENT_CACHE_SIZE);
         }
 
+        if (ObjectHelper.isNotEmpty(getReadLock())) {
+            readLockCheck();
+        }
+
         SmbConsumer consumer = new SmbConsumer(
                 this, processor, createOperations(),
                 processStrategy != null ? processStrategy : createGenericFileStrategy());
+        // set max messages per poll
         consumer.setMaxMessagesPerPoll(this.getMaxMessagesPerPoll());
         consumer.setEagerLimitMaxMessagesPerPoll(this.isEagerMaxMessagesPerPoll());
+
+        configureConsumer(consumer);
         return consumer;
+    }
+
+    private void readLockCheck() {
+        // check if it's valid
+        String valid = "none,rename,changed";
+        String[] arr = valid.split(",");
+        boolean matched = Arrays.stream(arr).anyMatch(n -> n.equals(getReadLock()));
+        if (!matched) {
+            throw new IllegalArgumentException("ReadLock invalid: " + getReadLock() + ", must be one of: " + valid);
+        }
     }
 
     public GenericFileOperations<FileIdBothDirectoryInformation> createOperations() {

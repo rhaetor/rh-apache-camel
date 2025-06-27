@@ -68,7 +68,7 @@ class ExportQuarkus extends Export {
         if (fresh || !files.isEmpty() || !settings.exists()) {
             // allow to automatic build
             printer().println("Generating fresh run data");
-            int silent = runSilently(ignoreLoadingError, lazyBean);
+            int silent = runSilently(ignoreLoadingError, lazyBean, verbose);
             if (silent != 0) {
                 return silent;
             }
@@ -103,6 +103,14 @@ class ExportQuarkus extends Export {
         copySettingsAndProfile(settings, profile, srcResourcesDir, prop -> {
             if (!hasModeline(settings)) {
                 prop.remove("camel.main.modeline");
+            }
+            // are we using http then enable embedded HTTP server (if not explicit configured already)
+            int port = httpServerPort(settings);
+            if (port == -1) {
+                port = 8080;
+            }
+            if (port != -1 && port != 8080) {
+                prop.put("quarkus.http.port", port);
             }
             return prop;
         });
@@ -155,7 +163,13 @@ class ExportQuarkus extends Export {
                 v = Arrays.stream(v.split(","))
                         .filter(d -> !d.endsWith(".java")) // skip .java as they are in the src/main/java folder
                         .map(ExportQuarkus::removeScheme) // remove scheme and routes are in camel sub-folder
-                        .map(s -> "camel/" + s)
+                        .map(s -> {
+                            if (s.endsWith("kamelet.yaml")) {
+                                return "kamelets/" + s;
+                            } else {
+                                return "camel/" + s;
+                            }
+                        })
                         .collect(Collectors.joining(","));
                 sj.add(v);
             }
@@ -366,8 +380,9 @@ class ExportQuarkus extends Export {
             // skip "camel.server." as this is for camel-main only
             return null;
         }
-        // quarkus use dash cased properties and lets turn camel into dash as well
-        if (key.startsWith("quarkus.") || key.startsWith("camel.")) {
+        // quarkus use dash cased properties and lets turn camel into dash as well (skip hawtio)
+        boolean dash = key.startsWith("camel.") || (key.startsWith("quarkus.") && !key.startsWith("quarkus.hawtio."));
+        if (dash) {
             key = StringHelper.camelCaseToDash(key);
         }
         return super.applicationPropertyLine(key, value);
