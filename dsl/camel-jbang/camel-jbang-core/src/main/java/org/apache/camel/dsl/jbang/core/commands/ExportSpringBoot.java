@@ -40,6 +40,8 @@ import org.apache.camel.util.IOHelper;
 import org.apache.camel.util.ObjectHelper;
 import org.apache.commons.io.FileUtils;
 
+import static org.apache.camel.dsl.jbang.core.commands.ExportHelper.exportPackageName;
+
 class ExportSpringBoot extends Export {
 
     public ExportSpringBoot(CamelJBangMain main) {
@@ -49,6 +51,8 @@ class ExportSpringBoot extends Export {
 
     @Override
     public Integer export() throws Exception {
+        this.camelSpringBootVersion = VersionHelper.getSpringBootVersion(null);
+
         String[] ids = gav.split(":");
         if (ids.length != 3) {
             printer().printErr("--gav must be in syntax: groupId:artifactId:version");

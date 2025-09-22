@@ -65,6 +65,7 @@ public class SmbOperations implements SmbFileOperations {
     private Session session;
     private DiskShare share;
     private SMBClient smbClient;
+    private Connection connection;
 
     public SmbOperations(SmbConfiguration configuration) {
         this.configuration = configuration;
@@ -80,12 +81,15 @@ public class SmbOperations implements SmbFileOperations {
 
     protected void connectIfNecessary() {
         try {
-            Connection connection = smbClient.connect(configuration.getHostname(), configuration.getPort());
-
-            if (!loggedIn || !isConnected()) {
+            if (!isConnected()) {
                 LOG.debug("Not already connected/logged in. Connecting to: {}:{}", configuration.getHostname(),
                         configuration.getPort());
 
+                // Clean up any existing partial connections
+                disconnect();
+
+                // Establish fresh connections
+                connection = smbClient.connect(configuration.getHostname(), configuration.getPort());
                 AuthenticationContext ac = new AuthenticationContext(
                         configuration.getUsername(),
                         configuration.getPassword().toCharArray(),
@@ -97,7 +101,7 @@ public class SmbOperations implements SmbFileOperations {
                 LOG.debug("Connected and logged in to: {}:{}", configuration.getHostname(), configuration.getPort());
                 loggedIn = true;
             }
-        } catch (IOException e) {
+        } catch (SMBRuntimeException | IOException e) {
             disconnect();
             throw new GenericFileOperationFailedException(
                     "Cannot connect to: " + configuration.getHostname() + ":" + configuration.getPort() + " due to: "
@@ -108,10 +112,10 @@ public class SmbOperations implements SmbFileOperations {
 
     @Override
     public boolean isConnected() throws GenericFileOperationFailedException {
-        if (share != null) {
-            return share.isConnected();
-        }
-        return false;
+        return loggedIn &&
+                connection != null && connection.isConnected() &&
+                session != null &&
+                share != null && share.isConnected();
     }
 
     @Override
@@ -128,16 +132,24 @@ public class SmbOperations implements SmbFileOperations {
         if (session != null) {
             try {
                 session.close();
+            } catch (Exception e) {
+                // ignore
+            }
+            session = null;
+        }
+        if (connection != null) {
+            try {
+                connection.close();
             } catch (TransportException t) {
                 try {
-                    session.getConnection().close(true);
+                    connection.close(true);
                 } catch (IOException e) {
                     // ignore
                 }
             } catch (Exception e) {
                 // ignore
             }
-            session = null;
+            connection = null;
         }
     }
 
@@ -167,7 +179,6 @@ public class SmbOperations implements SmbFileOperations {
             try (File f = share.openFile(name, EnumSet.of(AccessMask.GENERIC_ALL), null,
                     SMB2ShareAccess.ALL,
                     SMB2CreateDisposition.FILE_OPEN, null)) {
-
                 f.deleteOnClose();
             }
         }
@@ -198,10 +209,8 @@ public class SmbOperations implements SmbFileOperations {
 
             src.deleteOnClose();
         } catch (SMBRuntimeException smbre) {
-            if (smbre.getCause() instanceof TransportException) {
-                disconnect();
-                throw smbre;
-            }
+            safeDisconnect(smbre);
+            throw smbre;
         }
         return true;
     }
@@ -210,14 +219,11 @@ public class SmbOperations implements SmbFileOperations {
     public boolean buildDirectory(String directory, boolean absolute) throws GenericFileOperationFailedException {
         connectIfNecessary();
         SmbFiles files = new SmbFiles();
-
         try {
             files.mkdirs(share, normalize(directory));
         } catch (SMBRuntimeException smbre) {
-            if (smbre.getCause() instanceof TransportException) {
-                disconnect();
-                throw smbre;
-            }
+            safeDisconnect(smbre);
+            throw smbre;
         }
         return true;
     }
@@ -236,16 +242,12 @@ public class SmbOperations implements SmbFileOperations {
 
     public boolean existsFolder(String name) {
         connectIfNecessary();
-        boolean result = false;
         try {
-            result = share.folderExists(name);
+            return share.folderExists(name);
         } catch (SMBRuntimeException smbre) {
-            if (smbre.getCause() instanceof TransportException) {
-                disconnect();
-                throw smbre;
-            }
+            safeDisconnect(smbre);
+            throw smbre;
         }
-        return result;
     }
 
     private boolean retrieveFileToStreamInBody(String name, Exchange exchange) throws GenericFileOperationFailedException {
@@ -273,10 +275,8 @@ public class SmbOperations implements SmbFileOperations {
 
             exchange.getIn().setHeader(SmbConstants.SMB_UNC_PATH, shareFile.getUncPath());
         } catch (SMBRuntimeException smbre) {
-            if (smbre.getCause() instanceof TransportException) {
-                disconnect();
-                throw smbre;
-            }
+            safeDisconnect(smbre);
+            throw smbre;
         }
         return true;
     }
@@ -525,16 +525,12 @@ public class SmbOperations implements SmbFileOperations {
     public FileIdBothDirectoryInformation[] listFiles(String path, String searchPattern)
             throws GenericFileOperationFailedException {
         connectIfNecessary();
-        FileIdBothDirectoryInformation[] result = null;
         try {
-            result = share.list(path, searchPattern).toArray(FileIdBothDirectoryInformation[]::new);
+            return share.list(path, searchPattern).toArray(FileIdBothDirectoryInformation[]::new);
         } catch (SMBRuntimeException smbre) {
-            if (smbre.getCause() instanceof TransportException) {
-                disconnect();
-                throw smbre;
-            }
+            safeDisconnect(smbre);
+            throw smbre;
         }
-        return result;
     }
 
     public byte[] getBody(String path) {
@@ -548,17 +544,14 @@ public class SmbOperations implements SmbFileOperations {
                 throw new GenericFileOperationFailedException(e.getMessage(), e);
             }
         } catch (SMBRuntimeException smbre) {
-            if (smbre.getCause() instanceof TransportException) {
-                disconnect();
-                throw smbre;
-            }
+            safeDisconnect(smbre);
+            throw smbre;
         }
-        return null;
     }
 
     public InputStream getBodyAsInputStream(Exchange exchange, String path) {
         connectIfNecessary();
-        InputStream is = null;
+        InputStream is;
         try {
             File shareFile = share.openFile(path, EnumSet.of(AccessMask.GENERIC_READ), null,
                     SMB2ShareAccess.ALL, SMB2CreateDisposition.FILE_OPEN, null);
@@ -566,12 +559,20 @@ public class SmbOperations implements SmbFileOperations {
             exchange.getIn().setHeader(SmbComponent.SMB_FILE_INPUT_STREAM, is);
             exchange.getIn().setHeader(SmbConstants.SMB_UNC_PATH, shareFile.getUncPath());
         } catch (SMBRuntimeException smbre) {
-            if (smbre.getCause() instanceof TransportException) {
-                disconnect();
-                throw smbre;
-            }
+            safeDisconnect(smbre);
+            throw smbre;
         }
         return is;
+    }
+
+    private void safeDisconnect(SMBRuntimeException smbre) {
+        if (smbre.getCause() instanceof TransportException) {
+            try {
+                disconnect();
+            } catch (Exception e) {
+                // ignore
+            }
+        }
     }
 
     /*
